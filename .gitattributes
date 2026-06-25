@@ -1,0 +1,1 @@
+data/data_files/data_proteins.txt filter=lfs diff=lfs merge=lfs -text
