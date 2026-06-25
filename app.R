@@ -1,126 +1,45 @@
-# SHINY APP FOR <MAX STUDY>: ----------------------------------------------
+# SHINY APP FOR THE MAX MULTI-OMICS STUDY: --------------------------------
 #
-# Skeleton modelled on the shiny_exerome app. It is a *runnable* scaffold:
-# it ships with small synthetic demo data so you can launch it immediately,
-# then replace the demo data + helper functions with your own.
+# page_navbar + bslib theme + custom CSS. Data is loaded once here with vroom;
+# the plotting logic lives in functions/functions.R (sourced below).
 #
-# Structure (mirrors shiny_exerome):
-#   - page_navbar + bslib theme + custom CSS
-#   - "Home" tab  : study description / citation / contact / logos
-#   - data tabs   : sidebarLayout(sidebar = search + indicators + downloads,
-#                                  main    = navset_card_underline(plot, table))
-#
-# Recommended next step: move "Demo data" and "Helper functions" into
-#   R/loading_data.R  and  R/functions.R  and source() them (see shiny_exerome),
-#   so app.R stays focused on UI + server wiring.
-#
-# Packages used: shiny, bslib (already in renv.lock) + plotly, ggplot2, dplyr,
-#   kableExtra (install these). xlsx download additionally needs openxlsx.
-#   Install with, e.g.:
-#   renv::install(c("plotly", "ggplot2", "dplyr", "kableExtra", "openxlsx"))
+# Required packages: shiny, bslib, vroom, here, dplyr, ggplot2, plotly
+#   (xlsx download also needs openxlsx). Install with, e.g.:
+#   renv::install(c("vroom", "here", "dplyr", "ggplot2", "plotly"))
 
 
 # Libraries: --------------------------------------------------------------
 
 library(shiny)
 library(bslib)
-# Remaining packages are called with :: (plotly::, ggplot2::, dplyr::, kableExtra::)
+# Other packages are called with :: (vroom::, dplyr::, ggplot2::, plotly::)
 
 
-# Options / palette: ------------------------------------------------------
+# Data: -------------------------------------------------------------------
+# Loaded once at startup with vroom (fast). Columns used downstream:
+#   data_proteins      : Gene_name, omic_layer, PTM_collapse_key, Timepoint, Group, Value
+#   limma_proteins_T2D : Gene_name, omics_layer, PTM_collapse_key, P.Value_*
 
-# TODO: rebrand to your study's colours.
-color_palette <- c(
-  bg      = "#F4F7FB",  # app background
-  primary = "#1B6CA8",  # navbar / accents
-  panel   = "#D6E4F0",  # sidebar background
-  border  = "#1B6CA8"   # card / sidebar borders
-)
+data_proteins      <- vroom::vroom(here::here("data/data_files/data_proteins.txt"))
+limma_proteins_T2D <- vroom::vroom(here::here("data/limma_outputs/limma_proteins_T2D.txt"))
 
 
-# Demo data: --------------------------------------------------------------
-# TODO: DELETE this block and load your real data instead, e.g.:
-#   load(here::here("data/abundance.rda"))
-#   load(here::here("data/de_results.rda"))
-# Keep the column names used below (protein / grouping / abundance, and
-# Genes / contrast / logFC / P.Value / adj.P.Val) or update the helpers.
+# Functions: --------------------------------------------------------------
+# Defines violin_T2D(). Data is already loaded above, so functions.R skips its
+# own (guarded) load.
 
-set.seed(1)
-
-demo_groups   <- c("WT", "KO_g2", "KO_g5")
-demo_proteins <- c("Ybx3", "Ybx1", "Col1a1", "Tppp3", "Actb",
-                   "Gapdh", "Vim", "Fn1", "Hspa8", "Eef2")
-
-# Per-sample protein abundance (3 replicates per group)
-demo_abundance <- do.call(rbind, lapply(demo_proteins, function(p) {
-  baseline <- runif(1, 18, 24)
-  do.call(rbind, lapply(demo_groups, function(g) {
-    ko_shift <- if (p == "Ybx3" && grepl("KO", g)) -3 else 0
-    data.frame(
-      protein   = p,
-      grouping  = factor(g, levels = demo_groups),
-      sample_id = paste0(g, "_", 1:3),
-      abundance = round(rnorm(3, baseline + ko_shift, 0.4), 3),
-      stringsAsFactors = FALSE
-    )
-  }))
-}))
-
-# Differential-abundance results for two example contrasts
-demo_contrasts <- c("KO_g2 vs WT", "KO_g5 vs WT")
-demo_universe  <- c(demo_proteins, paste0("Gene", sprintf("%03d", 1:240)))
-demo_de <- do.call(rbind, lapply(demo_contrasts, function(ct) {
-  n   <- length(demo_universe)
-  lfc <- rnorm(n, 0, 1)
-  pv  <- runif(n)^2
-  # give a couple of proteins a clear signal so the volcano looks real
-  hit <- match(c("Ybx3", "Col1a1"), demo_universe)
-  lfc[hit] <- c(-3.2, 1.8)
-  pv[hit]  <- c(1e-5, 5e-4)
-  data.frame(
-    Genes     = demo_universe,
-    contrast  = ct,
-    logFC     = round(lfc, 3),
-    P.Value   = signif(pv, 3),
-    adj.P.Val = signif(p.adjust(pv, "BH"), 3),
-    stringsAsFactors = FALSE
-  )
-}))
-
-# Choices for the search boxes
-proteins    <- sort(unique(demo_abundance$protein))
-de_proteins <- sort(unique(demo_de$Genes))
+source(here::here("functions/functions.R"))
 
 
-# Helper functions: -------------------------------------------------------
-# TODO: replace plot bodies with your own ggplot code (these mirror the
-# boxplot + volcano style in YBX3_KO/R/data_analysis.R).
+# Choices derived from the data: ------------------------------------------
 
-# Small coloured status circle, reused by the sidebar indicators
-create_indicator <- function(label, ok) {
-  color <- if (isTRUE(ok)) "green" else "red"
-  HTML(sprintf(
-    paste0('<div style="display:flex;align-items:center;margin-bottom:5px;">',
-           '<div style="width:12px;height:12px;background-color:%s;',
-           'border-radius:50%%;margin-right:8px;"></div>',
-           '<span>%s</span></div>'),
-    color, label
-  ))
-}
+genes        <- sort(unique(data_proteins$Gene_name))
+layers       <- sort(unique(data_proteins$omic_layer))  # phospho / proteome / transcriptome
+default_gene <- if ("IQGAP1" %in% genes) "IQGAP1" else genes[1]
 
-# Styled HTML table (kableExtra) reused by every table output
-make_kable <- function(df) {
-  kableExtra::kable(df, format = "html") |>
-    kableExtra::kable_styling(
-      full_width = TRUE,
-      bootstrap_options = c("striped", "hover"),
-      position = "center"
-    ) |>
-    kableExtra::row_spec(0, bold = TRUE, font_size = 20) |>
-    kableExtra::row_spec(seq_len(nrow(df)), font_size = 16)
-}
 
-# Write a data.frame in the format chosen by the radio buttons
+# Helper - write a data.frame in the chosen download format: ---------------
+
 write_table_by_type <- function(df, file, type) {
   switch(
     type,
@@ -134,59 +53,16 @@ write_table_by_type <- function(df, file, type) {
   )
 }
 
-# Boxplot of one protein's abundance across groups
-plot_abundance <- function(.data, .protein) {
-  d <- .data |> dplyr::filter(protein == .protein)
-
-  ggplot2::ggplot(d, ggplot2::aes(x = grouping, y = abundance, fill = grouping)) +
-    ggplot2::geom_boxplot(alpha = 0.7, outlier.shape = NA) +
-    ggplot2::geom_point(size = 2) +
-    ggplot2::scale_fill_viridis_d(option = "turbo") +
-    ggplot2::labs(title = .protein, x = NULL, y = "Abundance (log2)") +
-    ggplot2::theme_classic() +
-    ggplot2::theme(
-      legend.position = "none",
-      plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")
-    )
-}
-
-# Volcano plot for one contrast, optionally highlighting one protein
-plot_volcano <- function(.data, .contrast, .highlight = NULL) {
-  d <- .data |>
-    dplyr::filter(contrast == .contrast) |>
-    dplyr::mutate(
-      significant = dplyr::case_when(
-        adj.P.Val <= 0.05 & logFC > 0 ~ "Up",
-        adj.P.Val <= 0.05 & logFC < 0 ~ "Down",
-        TRUE ~ "n.s."
-      )
-    )
-  hl <- d |> dplyr::filter(Genes %in% .highlight)
-
-  ggplot2::ggplot(
-    d, ggplot2::aes(x = logFC, y = -log10(P.Value), color = significant, text = Genes)
-  ) +
-    ggplot2::geom_point(alpha = 0.6, size = 1.4) +
-    ggplot2::geom_point(data = hl, color = "black", size = 2.6) +
-    ggplot2::geom_text(
-      data = hl, ggplot2::aes(label = Genes),
-      color = "black", vjust = -1, size = 4, show.legend = FALSE
-    ) +
-    ggplot2::scale_color_manual(
-      values = c(Down = "#2c7fb8", n.s. = "grey80", Up = "#d7301f")
-    ) +
-    ggplot2::geom_vline(xintercept = 0, linewidth = 0.3) +
-    ggplot2::labs(title = .contrast, x = "log2 fold-change",
-                  y = "-log10(P-value)", color = NULL) +
-    ggplot2::theme_bw() +
-    ggplot2::theme(
-      panel.grid.minor = ggplot2::element_blank(),
-      plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")
-    )
-}
-
 
 # Theme + custom CSS: -----------------------------------------------------
+
+# TODO: rebrand to your study's colours.
+color_palette <- c(
+  bg      = "#F4F7FB",  # app background
+  primary = "#1B6CA8",  # navbar / accents
+  panel   = "#D6E4F0",  # sidebar background
+  border  = "#1B6CA8"   # card / sidebar borders
+)
 
 app_theme <- bs_theme(
   version = 5,
@@ -241,13 +117,13 @@ ui <- page_navbar(
       fluidRow(column(12, wellPanel(
         p("If you use our app, please cite our publication:"),
         tags$span(strong("Molecular Pathways of Exercise in Type 2 Diabetes Revealed by Multi-Omics"), style = "font-size: 24px;"),
-        p("Ben Stocks*, Stephen P Ashcroft*, Signe Schmidt Kjølner Hansen, Jeppe Kjærgaard, 
-        Kirstin A MacGregor, Dimitrius Santiago Passos Simões Fróes Guimaraes, David Rizo-Roca, 
-        Marc Pielies Avelli, Simon Wengert, Konstantinos Makris, Amy M Ehrlich, Scott Frendo-Cumbo, 
-        Simone Jensen, Mladen Savikj, Roger Moreno-Justicia, Torkil Rogneflåten, Håvard Hamarsland, 
-        Daniel Hammarström, Dominik Lutter, Julia Otten, Tommy Olsson, Simon Rasmussen, Kenneth Caidahl, 
+        p("Ben Stocks*, Stephen P Ashcroft*, Signe Schmidt Kjølner Hansen, Jeppe Kjærgaard,
+        Kirstin A MacGregor, Dimitrius Santiago Passos Simões Fróes Guimaraes, David Rizo-Roca,
+        Marc Pielies Avelli, Simon Wengert, Konstantinos Makris, Amy M Ehrlich, Scott Frendo-Cumbo,
+        Simone Jensen, Mladen Savikj, Roger Moreno-Justicia, Torkil Rogneflåten, Håvard Hamarsland,
+        Daniel Hammarström, Dominik Lutter, Julia Otten, Tommy Olsson, Simon Rasmussen, Kenneth Caidahl,
         Harriet Wallberg-Henriksson, Anna Krook, Atul S Deshmukh#, and Juleen R Zierath#"),
-        p("*Joint first authors #Co-corresponding authors"), 
+        p("*Joint first authors #Co-corresponding authors"),
         p("<Journal / DOI>"),                                 # TODO
         p(strong("Summary")),
         p("<One-paragraph summary of the study and what this app lets users explore.>")  # TODO
@@ -267,10 +143,15 @@ ui <- page_navbar(
       # How to use
       fluidRow(column(12, wellPanel(
         strong("Introduction to the data:"),
-        p("This app visualises <describe your dataset>."),                       # TODO
-        p("The 'Protein abundance' tab shows per-group abundance for a chosen protein."),
-        p("The 'Differential abundance' tab shows volcano plots for each contrast."),
-        p("Disclaimer: <add any preprint / preliminary-results disclaimer here>.")
+        p("This app visualises the MAX multi-omics exercise study in people with normal
+           glucose tolerance (NGT) and type 2 diabetes (T2D)."),
+        p("The 'Expression' tab shows the abundance of a chosen gene / protein across the
+           exercise time-course (Base, Post, Rec) in each group, for the transcriptome,
+           proteome or phosphoproteome. Significant timepoint comparisons (p ≤ 0.05)
+           are annotated with brackets."),
+        p("The 'Differential abundance' tab (coming soon) will show volcano plots from the
+           limma analysis."),
+        p("Disclaimer: <add any preprint / preliminary-results disclaimer here>.")  # TODO
       ))),
 
       # Contact
@@ -288,92 +169,57 @@ ui <- page_navbar(
     )
   ),
 
-  # --- Protein abundance ---------------------------------------------------
+  # --- Expression (violin_T2D) ---------------------------------------------
   nav_panel(
-    "Protein abundance",
+    "Expression",
     sidebarLayout(
       sidebarPanel(
         class = "custom-sidebar",
         div(
           class = "sidebar-section",
-          p("Search a protein to view its abundance across groups."),
-          selectizeInput(
-            "protein", "Browse a protein:",
-            choices = proteins, selected = "Ybx3", multiple = FALSE
+          p("Select a gene / protein and an omics layer to view its abundance across the
+             exercise time-course."),
+          selectizeInput("feature", "Gene / protein:", choices = NULL),
+          radioButtons(
+            "omics_layer", "Omics layer:",
+            choices = layers, selected = if ("proteome" %in% layers) "proteome" else layers[1]
           ),
-          p("Selected protein is:"),
-          uiOutput("detect_indicator")
+          # Phosphosite picker - only shown for the phosphoproteome layer.
+          conditionalPanel(
+            condition = "input.omics_layer == 'phosphoproteome'",
+            selectizeInput("phosphosite", "Phosphosite:", choices = NULL)
+          )
         ),
         div(
           class = "sidebar-section",
           radioButtons(
-            "filetype_abundance",
-            "Select filetype and download the abundance table:",
+            "filetype", "Download the underlying data as:",
             choices = c("csv", "tsv", "xlsx"), selected = "csv"
           ),
-          downloadButton("download_abundance", "Download data",
-                         class = "btn-primary")
+          downloadButton("download_data", "Download data", class = "btn-primary")
         )
       ),
       mainPanel(
         navset_card_underline(
-          full_screen = TRUE, title = "Plot",
-          nav_panel("Abundance", plotly::plotlyOutput("abundance_plot"),
-                    height = "500px", style = panel_style)
-        ),
-        navset_card_underline(
-          full_screen = TRUE, title = "Table",
-          nav_panel("Summary", tableOutput("abundance_table"), style = panel_style)
+          full_screen = TRUE, title = "Expression",
+          nav_panel(
+            "Ins.Sensitivity",
+            plotly::plotlyOutput("violin", height = "520px"),
+            style = panel_style
+          )
         )
       )
     )
   ),
 
-  # --- Differential abundance ----------------------------------------------
+  # --- Differential abundance (placeholder) --------------------------------
   nav_panel(
     "Differential abundance",
-    sidebarLayout(
-      sidebarPanel(
-        class = "custom-sidebar",
-        div(
-          class = "sidebar-section",
-          radioButtons(
-            "de_contrast", "Contrast:",
-            choices = demo_contrasts, selected = demo_contrasts[1]
-          )
-        ),
-        div(
-          class = "sidebar-section",
-          p("Highlight a protein on the volcano plot:"),
-          selectizeInput(
-            "de_protein", "Browse a protein:",
-            choices = de_proteins, selected = "Ybx3", multiple = FALSE
-          ),
-          p("In the selected contrast this protein is:"),
-          uiOutput("sig_indicator")
-        ),
-        div(
-          class = "sidebar-section",
-          radioButtons(
-            "filetype_de",
-            "Select filetype and download the results table:",
-            choices = c("csv", "tsv", "xlsx"), selected = "csv"
-          ),
-          downloadButton("download_de", "Download data", class = "btn-primary")
-        )
-      ),
-      mainPanel(
-        navset_card_underline(
-          full_screen = TRUE, title = "Plot",
-          nav_panel("Volcano", plotly::plotlyOutput("volcano_plot"),
-                    height = "500px", style = panel_style)
-        ),
-        navset_card_underline(
-          full_screen = TRUE, title = "Table",
-          nav_panel("Top hits", tableOutput("de_table"), style = panel_style)
-        )
-      )
-    )
+    fluidPage(fluidRow(column(12, wellPanel(
+      h4("Differential abundance"),
+      p("Volcano plots from the limma results (limma_proteins_T2D) will live here."),
+      tags$em("Coming soon.")
+    ))))
   )
 )
 
@@ -388,82 +234,72 @@ server <- function(input, output, session) {
   #   grid::grid.raster(png::readPNG("www/logo_CBMR.png"))
   # }, bg = "transparent")
 
-  # --- Protein abundance ---------------------------------------------------
-  output$detect_indicator <- renderUI({
-    req(input$protein)
-    create_indicator("Detected in dataset", input$protein %in% demo_abundance$protein)
-  })
+  # --- Expression tab ------------------------------------------------------
 
-  output$abundance_plot <- plotly::renderPlotly({
-    req(input$protein)
-    plotly::ggplotly(plot_abundance(demo_abundance, input$protein))
-  })
+  # 21k+ genes -> populate the selectize on the server for performance.
+  updateSelectizeInput(session, "feature", choices = genes,
+                       selected = default_gene, server = TRUE)
 
-  output$abundance_table <- function() {
-    req(input$protein)
-    d <- demo_abundance |>
-      dplyr::filter(protein == input$protein) |>
-      dplyr::group_by(grouping) |>
-      dplyr::summarise(
-        n    = dplyr::n(),
-        mean = round(mean(abundance), 3),
-        sd   = round(stats::sd(abundance), 3),
-        .groups = "drop"
-      )
-    make_kable(d)
-  }
-
-  output$download_abundance <- downloadHandler(
-    filename = function() paste0("MAX_abundance_", input$protein, ".", input$filetype_abundance),
-    content  = function(file) {
-      d <- demo_abundance |> dplyr::filter(protein == input$protein)
-      write_table_by_type(d, file, input$filetype_abundance)
+  # Phosphosites depend on the chosen gene; refresh them when gene / layer change.
+  observeEvent(list(input$feature, input$omics_layer), {
+    req(input$feature)
+    if (identical(input$omics_layer, "phosphoproteome")) {
+      sites <- data_proteins |>
+        dplyr::filter(Gene_name == input$feature, omic_layer == "phosphoproteome") |>
+        dplyr::pull(PTM_collapse_key) |>
+        unique() |>
+        sort()
+      updateSelectizeInput(session, "phosphosite", choices = sites,
+                           selected = if (length(sites)) sites[1] else NULL)
     }
-  )
-
-  # --- Differential abundance ----------------------------------------------
-  output$sig_indicator <- renderUI({
-    req(input$de_protein, input$de_contrast)
-    row <- demo_de |>
-      dplyr::filter(contrast == input$de_contrast, Genes == input$de_protein)
-    sig <- nrow(row) > 0 && row$adj.P.Val[1] <= 0.05
-    dir <- if (nrow(row) > 0 && row$logFC[1] > 0) "up" else "down"
-    tagList(
-      create_indicator(
-        if (sig) sprintf("Significant (%s-regulated, adj.P ≤ 0.05)", dir)
-        else "Not significant (adj.P > 0.05)",
-        sig
-      )
-    )
   })
 
-  output$volcano_plot <- plotly::renderPlotly({
-    req(input$de_contrast)
-    plotly::ggplotly(
-      plot_volcano(demo_de, input$de_contrast, input$de_protein),
-      tooltip = c("text", "x", "y")
-    )
+  # Data underlying the current selection (used by the download handler).
+  selection <- reactive({
+    req(input$feature, input$omics_layer)
+    d <- data_proteins |>
+      dplyr::filter(Gene_name == input$feature, omic_layer == input$omics_layer)
+    if (identical(input$omics_layer, "phosphoproteome") &&
+        isTRUE(nzchar(input$phosphosite))) {
+      d <- d |> dplyr::filter(PTM_collapse_key == input$phosphosite)
+    }
+    d
   })
 
-  output$de_table <- function() {
-    req(input$de_contrast)
-    d <- demo_de |>
-      dplyr::filter(contrast == input$de_contrast) |>
-      dplyr::arrange(P.Value) |>
-      head(50)
-    make_kable(d)
-  }
+  # Main output: the violin from violin_T2D(), made interactive with ggplotly().
+  output$violin <- plotly::renderPlotly({
+    req(input$feature, input$omics_layer)
 
-  output$download_de <- downloadHandler(
+    # Guard the combinations violin_T2D() cannot handle, with a friendly message.
+    validate(need(
+      nrow(dplyr::filter(data_proteins,
+                         Gene_name == input$feature,
+                         omic_layer == input$omics_layer)) > 0,
+      "No data for this gene in the selected omics layer."
+    ))
+
+    site <- NULL
+    if (identical(input$omics_layer, "phosphoproteome")) {
+      validate(need(isTRUE(nzchar(input$phosphosite)), "Select a phosphosite."))
+      site <- input$phosphosite
+    }
+
+    p <- violin_T2D(data_proteins, limma_proteins_T2D,
+                    feature = input$feature, omics_layer = input$omics_layer,
+                    phosphosite = site)
+    plotly::ggplotly(p, tooltip = "text")
+  })
+
+  # Download the underlying data for the current selection.
+  output$download_data <- downloadHandler(
     filename = function() {
-      paste0("MAX_DE_", gsub(" ", "_", input$de_contrast), ".", input$filetype_de)
+      base <- input$feature
+      if (identical(input$omics_layer, "phosphoproteome") && isTRUE(nzchar(input$phosphosite))) {
+        base <- input$phosphosite
+      }
+      paste0("MAX_", input$omics_layer, "_", base, ".", input$filetype)
     },
-    content = function(file) {
-      d <- demo_de |>
-        dplyr::filter(contrast == input$de_contrast) |>
-        dplyr::arrange(P.Value)
-      write_table_by_type(d, file, input$filetype_de)
-    }
+    content = function(file) write_table_by_type(selection(), file, input$filetype)
   )
 }
 
