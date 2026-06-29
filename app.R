@@ -3,9 +3,9 @@
 # page_navbar + bslib theme + custom CSS. Data is loaded once here with vroom;
 # the plotting logic lives in functions/functions.R (sourced below).
 #
-# Required packages: shiny, bslib, vroom, here, dplyr, ggplot2, plotly
+# Required packages: shiny, bslib, vroom, here, dplyr, ggplot2, plotly, DT
 #   (xlsx download also needs openxlsx). Install with, e.g.:
-#   renv::install(c("vroom", "here", "dplyr", "ggplot2", "plotly"))
+#   renv::install(c("vroom", "here", "dplyr", "ggplot2", "plotly", "DT"))
 
 
 # Libraries: --------------------------------------------------------------
@@ -22,6 +22,12 @@ library(bslib)
 
 data_proteins      <- vroom::vroom(here::here("data/data_files/data_proteins.txt"))
 limma_proteins_T2D <- vroom::vroom(here::here("data/limma_outputs/limma_proteins_T2D.txt"))
+limma_proteins_sex <- vroom::vroom(here::here("data/limma_outputs/limma_proteins_sex.txt"))
+
+# Metabolites (single feature type: CHEMICAL_NAME; no omics layer / phosphosites).
+data_metabolites      <- vroom::vroom(here::here("data/data_files/data_metabolites.txt"))
+limma_metabolites_TD  <- vroom::vroom(here::here("data/limma_outputs/limma_metabolites_TD.txt"))
+limma_metabolites_sex <- vroom::vroom(here::here("data/limma_outputs/limma_metabolites_sex.txt"))
 
 
 # Functions: --------------------------------------------------------------
@@ -37,26 +43,12 @@ genes        <- sort(unique(data_proteins$Gene_name))
 layers       <- sort(unique(data_proteins$omic_layer))  # phospho / proteome / transcriptome
 default_gene <- if ("IQGAP1" %in% genes) "IQGAP1" else genes[1]
 
-
-# Helper - write a data.frame in the chosen download format: ---------------
-
-write_table_by_type <- function(df, file, type) {
-  switch(
-    type,
-    csv  = utils::write.csv(df, file, row.names = FALSE),
-    tsv  = utils::write.table(df, file, sep = "\t", row.names = FALSE, quote = FALSE),
-    xlsx = if (requireNamespace("openxlsx", quietly = TRUE)) {
-      openxlsx::write.xlsx(df, file)
-    } else {
-      utils::write.csv(df, file, row.names = FALSE)  # fallback if openxlsx missing
-    }
-  )
-}
+metabolites        <- sort(unique(data_metabolites$CHEMICAL_NAME))
+default_metabolite <- metabolites[1]
 
 
 # Theme + custom CSS: -----------------------------------------------------
 
-# TODO: rebrand to your study's colours.
 color_palette <- c(
   bg      = "#F4F7FB",  # app background
   primary = "#1B6CA8",  # navbar / accents
@@ -96,6 +88,24 @@ app_theme <- bs_theme(
       font-weight: bold;
       padding: 10px;
     }
+
+    /* Card tabs (navset_card_underline): Main effect / Ins.Sensitivity / Sex.
+       These render as a classic tabset (ul.nav.nav-underline > li > a) with no
+       .nav-link class, so the anchors are targeted directly. Force white on the
+       blue card header; active / hovered tab is full-opacity + bold. */
+    .card-header .nav > li > a,
+    .card-header .nav-link {
+      color: #ffffff !important;
+      opacity: 0.7;
+    }
+    .card-header .nav > li.active > a,
+    .card-header .nav > li > a:hover,
+    .card-header .nav-link.active,
+    .card-header .nav-link:hover {
+      color: #ffffff !important;
+      opacity: 1;
+      font-weight: 700;
+    }
   ", color_palette[["panel"]], color_palette[["border"]], color_palette[["primary"]]))
 
 # Shared style string for the plot/table panels
@@ -105,7 +115,7 @@ panel_style <- "background-color: #FFFFFF; border: 3px solid #1B6CA8; color: bla
 # Graphical user interface: -----------------------------------------------
 
 ui <- page_navbar(
-  title = "MAX app",          # TODO: app title
+  title = "MAX app",
   bg = color_palette[["primary"]],
   theme = app_theme,
 
@@ -171,7 +181,7 @@ ui <- page_navbar(
 
   # --- Expression (violin_T2D) ---------------------------------------------
   nav_panel(
-    "Expression",
+    "Genes, Proteins & Phosphosites",
     sidebarLayout(
       sidebarPanel(
         class = "custom-sidebar",
@@ -179,6 +189,8 @@ ui <- page_navbar(
           class = "sidebar-section",
           p("Select a gene / protein and an omics layer to view its abundance across the
              exercise time-course."),
+          p("Then, toggle between Main effect, Ins.Sensitivity or Sex to view feature abundance
+            across different statistical comparisons"),
           selectizeInput("feature", "Gene / protein:", choices = NULL),
           radioButtons(
             "omics_layer", "Omics layer:",
@@ -188,38 +200,108 @@ ui <- page_navbar(
           conditionalPanel(
             condition = "input.omics_layer == 'phosphoproteome'",
             selectizeInput("phosphosite", "Phosphosite:", choices = NULL)
-          )
+          ),
+          p("S, T and Y stand for serine, threonine and tyrosine, respectively"),
+          p("M indicates multiplicity of sites: number of concurrent phosphosites in a given peptide")
         ),
         div(
           class = "sidebar-section",
           radioButtons(
-            "filetype", "Download the underlying data as:",
+            "filetype", "Download the results table as:",
             choices = c("csv", "tsv", "xlsx"), selected = "csv"
           ),
-          downloadButton("download_data", "Download data", class = "btn-primary")
+          downloadButton("download_data", "Download table", class = "btn-primary")
         )
       ),
       mainPanel(
+        # Report the active card tab to the server. bslib's navset `id` binding
+        # can miss Bootstrap 5 tab-change events, so set a Shiny input directly
+        # from the native 'shown.bs.tab' event. Generic: any navset with an id
+        # gets input$<id>_active (here #comparison and #comparison_met).
+        tags$script(HTML(
+          "document.addEventListener('shown.bs.tab', function(e) {
+             var nav = e.target.closest('ul.nav[id]');
+             if (nav) Shiny.setInputValue(nav.id + '_active', e.target.getAttribute('data-value'));
+           });"
+        )),
         navset_card_underline(
-          full_screen = TRUE, title = "Expression",
+          id = "comparison",   # kept as a fallback source for the active tab
+          full_screen = TRUE, title = "Feature Expression",
           nav_panel(
-            "Ins.Sensitivity",
-            plotly::plotlyOutput("violin", height = "520px"),
-            style = panel_style
+            "Main effect",
+            plotly::plotlyOutput("violin_main", height = "45vh")
+          ),
+          nav_panel(
+            "Type 2 Diabetes",
+            plotly::plotlyOutput("violin_T2D", height = "45vh")
+          ),
+          nav_panel(
+            "Sex",
+            plotly::plotlyOutput("violin_sex", height = "45vh")
+          )
+        ),
+        # Limma results for the selected feature, linked to the active comparison.
+        card(
+          full_screen = TRUE,
+          card_header("Statistics"),
+          card_body(
+            DT::DTOutput("limma_table"),
+            tags$small(
+              class = "text-muted",
+              "Limma statistics for the selected feature across omics layers in the
+               active comparison. Click a transcriptome / proteome row to plot the
+               gene, or a phosphosite row to plot that site."
+            )
           )
         )
       )
     )
   ),
 
-  # --- Differential abundance (placeholder) --------------------------------
+  # --- Metabolites ---------------------------------------------------------
   nav_panel(
-    "Differential abundance",
-    fluidPage(fluidRow(column(12, wellPanel(
-      h4("Differential abundance"),
-      p("Volcano plots from the limma results (limma_proteins_T2D) will live here."),
-      tags$em("Coming soon.")
-    ))))
+    "Metabolites",
+    sidebarLayout(
+      sidebarPanel(
+        class = "custom-sidebar",
+        div(
+          class = "sidebar-section",
+          p("Select a metabolite to view its abundance across the exercise time-course."),
+          p("Then, toggle between Main effect, Type 2 Diabetes or Sex to view it across
+             different statistical comparisons."),
+          selectizeInput("metabolite", "Metabolite:", choices = NULL)
+        ),
+        div(
+          class = "sidebar-section",
+          radioButtons(
+            "filetype_met", "Download the results table as:",
+            choices = c("csv", "tsv", "xlsx"), selected = "csv"
+          ),
+          downloadButton("download_met", "Download table", class = "btn-primary")
+        )
+      ),
+      mainPanel(
+        navset_card_underline(
+          id = "comparison_met",   # input$comparison_met_active via the JS handler
+          full_screen = TRUE, title = "Metabolite levels",
+          nav_panel("Main effect",     plotly::plotlyOutput("violin_met_main", height = "45vh")),
+          nav_panel("Type 2 Diabetes", plotly::plotlyOutput("violin_met_T2D",  height = "45vh")),
+          nav_panel("Sex",             plotly::plotlyOutput("violin_met_sex",  height = "45vh"))
+        ),
+        # Limma results for the selected metabolite, linked to the active comparison.
+        card(
+          full_screen = TRUE,
+          card_header("Statistics"),
+          card_body(
+            DT::DTOutput("limma_met_table"),
+            tags$small(
+              class = "text-muted",
+              "Limma statistics for the selected metabolite in the active comparison."
+            )
+          )
+        )
+      )
+    )
   )
 )
 
@@ -240,6 +322,10 @@ server <- function(input, output, session) {
   updateSelectizeInput(session, "feature", choices = genes,
                        selected = default_gene, server = TRUE)
 
+  # A phosphosite requested by a table row click, consumed once the phosphosite
+  # choices have been refreshed for the gene (so it survives a layer switch).
+  pending_site <- reactiveVal(NULL)
+
   # Phosphosites depend on the chosen gene; refresh them when gene / layer change.
   observeEvent(list(input$feature, input$omics_layer), {
     req(input$feature)
@@ -249,25 +335,41 @@ server <- function(input, output, session) {
         dplyr::pull(PTM_collapse_key) |>
         unique() |>
         sort()
-      updateSelectizeInput(session, "phosphosite", choices = sites,
-                           selected = if (length(sites)) sites[1] else NULL)
+      # honour a site requested via a row click, else default to the first
+      sel <- if (!is.null(pending_site()) && pending_site() %in% sites) pending_site()
+             else if (length(sites)) sites[1] else NULL
+      pending_site(NULL)
+      updateSelectizeInput(session, "phosphosite", choices = sites, selected = sel)
     }
   })
 
-  # Data underlying the current selection (used by the download handler).
-  selection <- reactive({
+  # Main output: the violin from violin_main_effect(), made interactive with ggplotly().
+  output$violin_main <- plotly::renderPlotly({
     req(input$feature, input$omics_layer)
-    d <- data_proteins |>
-      dplyr::filter(Gene_name == input$feature, omic_layer == input$omics_layer)
-    if (identical(input$omics_layer, "phosphoproteome") &&
-        isTRUE(nzchar(input$phosphosite))) {
-      d <- d |> dplyr::filter(PTM_collapse_key == input$phosphosite)
+    
+    # Guard the combinations violin_T2D() cannot handle, with a friendly message.
+    validate(need(
+      nrow(dplyr::filter(data_proteins,
+                         Gene_name == input$feature,
+                         omic_layer == input$omics_layer)) > 0,
+      "No data for this gene in the selected omics layer."
+    ))
+    
+    site <- NULL
+    if (identical(input$omics_layer, "phosphoproteome")) {
+      validate(need(isTRUE(nzchar(input$phosphosite)), "Select a phosphosite."))
+      site <- input$phosphosite
     }
-    d
+    
+    p <- violin_main_effect(data_proteins, limma_proteins_T2D,
+                    feature = input$feature, omics_layer = input$omics_layer,
+                    phosphosite = site)
+    plotly::ggplotly(p, tooltip = "text")
   })
-
+  
+  
   # Main output: the violin from violin_T2D(), made interactive with ggplotly().
-  output$violin <- plotly::renderPlotly({
+  output$violin_T2D <- plotly::renderPlotly({
     req(input$feature, input$omics_layer)
 
     # Guard the combinations violin_T2D() cannot handle, with a friendly message.
@@ -289,17 +391,189 @@ server <- function(input, output, session) {
                     phosphosite = site)
     plotly::ggplotly(p, tooltip = "text")
   })
+  
+  # Main output: the violin from violin_sex(), made interactive with ggplotly().
+  output$violin_sex <- plotly::renderPlotly({
+    req(input$feature, input$omics_layer)
+    
+    # Guard the combinations violin_T2D() cannot handle, with a friendly message.
+    validate(need(
+      nrow(dplyr::filter(data_proteins,
+                         Gene_name == input$feature,
+                         omic_layer == input$omics_layer)) > 0,
+      "No data for this gene in the selected omics layer."
+    ))
+    
+    site <- NULL
+    if (identical(input$omics_layer, "phosphoproteome")) {
+      validate(need(isTRUE(nzchar(input$phosphosite)), "Select a phosphosite."))
+      site <- input$phosphosite
+    }
+    
+    p <- violin_sex(data_proteins, limma_proteins_sex,
+                    feature = input$feature, omics_layer = input$omics_layer,
+                    phosphosite = site)
+    plotly::ggplotly(p, tooltip = "text")
+  })
 
-  # Download the underlying data for the current selection.
+  # --- Limma results table (linked to the active comparison) ---------------
+
+  # Which comparison tab is showing (defaults before the navset registers).
+  active_comparison <- reactive({
+    # Prefer the value set by the JS 'shown.bs.tab' handler (reliable on BS5),
+    # fall back to the navset id binding, then to the first tab.
+    cmp <- input$comparison_active
+    if (is.null(cmp) || !nzchar(cmp)) cmp <- input$comparison
+    if (is.null(cmp) || !nzchar(cmp)) "Main effect" else cmp
+  })
+
+  # Table data: stats for the selected feature in the active comparison. Depends
+  # on feature / layer / comparison only (NOT the phosphosite), so clicking a row
+  # to change the site does not rebuild the table -> no reactive loop.
+  # Table data: the gene's measurements across layers for the active comparison.
+  # Depends on feature + comparison only (NOT omics_layer / phosphosite), so
+  # clicking a row to change the layer or site does not rebuild it -> no loop.
+  limma_view <- reactive({
+    req(input$feature)
+    limma_results_table(active_comparison(), input$feature,
+                        limma_proteins_T2D, limma_proteins_sex)
+  })
+
+  # server = FALSE (client-side) so the table re-renders cleanly when the active
+  # comparison changes the column set.
+  output$limma_table <- DT::renderDT({
+    df <- limma_view()
+    validate(need(!is.null(df) && nrow(df) > 0, "No limma results for this feature."))
+    pcols <- names(df)[grepl("P.Val", names(df), fixed = TRUE)]                  # P.Value + adj.P.Val
+    rcols <- names(df)[grepl("logFC", names(df), fixed = TRUE) |
+                       grepl("AveExpr", names(df), fixed = TRUE)]
+    dt <- DT::datatable(
+      df, rownames = FALSE, selection = "single",
+      # Bounded, viewport-relative height with internal scroll so the table card
+      # fits on screen alongside the plot (no page scrolling). scrollCollapse
+      # shrinks it when there are few rows.
+      options = list(scrollX = TRUE, scrollY = "28vh", scrollCollapse = TRUE,
+                     paging = FALSE, dom = "ft")
+    )
+    if (length(pcols)) dt <- DT::formatSignif(dt, pcols, 3)
+    if (length(rcols)) dt <- DT::formatRound(dt, rcols, 2)
+    dt
+  }, server = FALSE)
+
+  # Click a row -> switch the plot to that layer (and site). A transcriptome /
+  # proteome row sets the omics layer for the gene; a phosphosite row sets the
+  # layer + that site.
+  observeEvent(input$limma_table_rows_selected, {
+    df <- limma_view(); req(df)
+    i     <- input$limma_table_rows_selected
+    layer <- df$Layer[i]
+    feat  <- df$Feature[i]
+    if (identical(layer, "phosphoproteome")) {
+      if (identical(input$omics_layer, "phosphoproteome")) {
+        if (!identical(feat, input$phosphosite)) {
+          updateSelectizeInput(session, "phosphosite", selected = feat)
+        }
+      } else {
+        pending_site(feat)                                  # carry site across the layer switch
+        updateRadioButtons(session, "omics_layer", selected = "phosphoproteome")
+      }
+    } else if (!identical(input$omics_layer, layer)) {
+      updateRadioButtons(session, "omics_layer", selected = layer)
+    }
+  })
+
+  # Keep the table's highlighted row in sync with the sidebar selection (the
+  # reverse of the row-click linking), so the highlighted row always matches the
+  # plotted layer / site. Guarded against re-selecting the current row to avoid
+  # ping-ponging with the row-click observer.
+  limma_proxy <- DT::dataTableProxy("limma_table")
+  observeEvent(list(limma_view(), input$omics_layer, input$phosphosite), {
+    df <- limma_view(); req(df)
+    target <- if (identical(input$omics_layer, "phosphoproteome")) {
+      which(df$Layer == "phosphoproteome" & df$Feature == input$phosphosite)
+    } else {
+      which(df$Layer == input$omics_layer)
+    }
+    sel <- isolate(input$limma_table_rows_selected)   # read, don't depend on, the selection
+    if (length(target) == 1) {
+      if (!identical(as.integer(target), as.integer(sel))) DT::selectRows(limma_proxy, target)
+    } else if (!is.null(sel)) {
+      DT::selectRows(limma_proxy, NULL)               # no matching row -> clear the highlight
+    }
+  })
+
+  # Download the limma results table currently on screen (selected feature,
+  # active comparison).
   output$download_data <- downloadHandler(
     filename = function() {
-      base <- input$feature
-      if (identical(input$omics_layer, "phosphoproteome") && isTRUE(nzchar(input$phosphosite))) {
-        base <- input$phosphosite
-      }
-      paste0("MAX_", input$omics_layer, "_", base, ".", input$filetype)
+      cmp <- gsub("[^A-Za-z0-9]", "", active_comparison())
+      paste0("MAX_limma_", input$feature, "_", cmp, ".", input$filetype)
     },
-    content = function(file) write_table_by_type(selection(), file, input$filetype)
+    content = function(file) {
+      df <- limma_view()
+      if (is.null(df) || !nrow(df)) df <- data.frame(Message = "No results for this feature.")
+      write_table_by_type(df, file, input$filetype)
+    }
+  )
+
+  # --- Metabolites tab ------------------------------------------------------
+
+  # 846 metabolites -> populate the selectize on the server.
+  updateSelectizeInput(session, "metabolite", choices = metabolites,
+                       selected = default_metabolite, server = TRUE)
+
+  active_comparison_met <- reactive({
+    cmp <- input$comparison_met_active
+    if (is.null(cmp) || !nzchar(cmp)) "Main effect" else cmp
+  })
+
+  # One plotly builder reused for the three comparison tabs.
+  met_plot <- function(comparison, limma_tbl) {
+    req(input$metabolite)
+    validate(need(
+      nrow(dplyr::filter(data_metabolites, CHEMICAL_NAME == input$metabolite)) > 0,
+      "No data for this metabolite."
+    ))
+    plotly::ggplotly(
+      violin_metabolite(data_metabolites, limma_tbl, input$metabolite, comparison),
+      tooltip = "text"
+    )
+  }
+  output$violin_met_main <- plotly::renderPlotly(met_plot("Main effect",     limma_metabolites_TD))
+  output$violin_met_T2D  <- plotly::renderPlotly(met_plot("Type 2 Diabetes", limma_metabolites_TD))
+  output$violin_met_sex  <- plotly::renderPlotly(met_plot("Sex",             limma_metabolites_sex))
+
+  # Stats table for the selected metabolite, linked to the active comparison.
+  limma_met_view <- reactive({
+    req(input$metabolite)
+    limma_metabolites_table(active_comparison_met(), input$metabolite,
+                            limma_metabolites_TD, limma_metabolites_sex)
+  })
+
+  output$limma_met_table <- DT::renderDT({
+    df <- limma_met_view()
+    validate(need(!is.null(df) && nrow(df) > 0, "No limma results for this metabolite."))
+    pcols <- names(df)[grepl("P.Val", names(df), fixed = TRUE)]
+    rcols <- names(df)[grepl("logFC", names(df), fixed = TRUE) |
+                       grepl("AveExpr", names(df), fixed = TRUE)]
+    dt <- DT::datatable(df, rownames = FALSE, selection = "none",
+                        options = list(scrollX = TRUE, dom = "t", paging = FALSE))
+    if (length(pcols)) dt <- DT::formatSignif(dt, pcols, 3)
+    if (length(rcols)) dt <- DT::formatRound(dt, rcols, 2)
+    dt
+  }, server = FALSE)
+
+  output$download_met <- downloadHandler(
+    filename = function() {
+      cmp <- gsub("[^A-Za-z0-9]", "", active_comparison_met())
+      met <- gsub("[^A-Za-z0-9]+", "_", input$metabolite)
+      paste0("MAX_metabolite_", met, "_", cmp, ".", input$filetype_met)
+    },
+    content = function(file) {
+      df <- limma_met_view()
+      if (is.null(df) || !nrow(df)) df <- data.frame(Message = "No results for this metabolite.")
+      write_table_by_type(df, file, input$filetype_met)
+    }
   )
 }
 
