@@ -3,15 +3,16 @@
 # page_navbar + bslib theme + custom CSS. Data is loaded once here with vroom;
 # the plotting logic lives in functions/functions.R (sourced below).
 #
-# Required packages: shiny, bslib, vroom, here, dplyr, ggplot2, plotly, DT
+# Required packages: shiny, bslib, data.table, vroom, here, dplyr, ggplot2, plotly, DT
 #   (xlsx download also needs openxlsx). Install with, e.g.:
-#   renv::install(c("vroom", "here", "dplyr", "ggplot2", "plotly", "DT"))
+#   renv::install(c("data.table", "vroom", "here", "dplyr", "ggplot2", "plotly", "DT"))
 
 
 # Libraries: --------------------------------------------------------------
 
 library(shiny)
 library(bslib)
+library(data.table)   # fast load (fread) + keyed lookups for the large protein table
 # Other packages are called with :: (vroom::, dplyr::, ggplot2::, plotly::)
 
 
@@ -20,7 +21,10 @@ library(bslib)
 #   data_proteins      : Gene_name, omic_layer, PTM_collapse_key, Timepoint, Group, Value
 #   limma_proteins_T2D : Gene_name, omics_layer, PTM_collapse_key, P.Value_*
 
-data_proteins      <- vroom::vroom(here::here("data/data_files/data_proteins.txt"))
+# fread (~2.8 s vs ~9.6 s for vroom) + key on Gene_name + omic_layer, so the
+# per-selection lookup in protein_subset() is a ~0 ms binary search.
+data_proteins      <- data.table::fread(here::here("data/data_files/data_proteins.txt"))
+data.table::setkey(data_proteins, Gene_name, omic_layer)
 limma_proteins_T2D <- vroom::vroom(here::here("data/limma_outputs/limma_proteins_T2D.txt"))
 limma_proteins_sex <- vroom::vroom(here::here("data/limma_outputs/limma_proteins_sex.txt"))
 
@@ -330,11 +334,9 @@ server <- function(input, output, session) {
   observeEvent(list(input$feature, input$omics_layer), {
     req(input$feature)
     if (identical(input$omics_layer, "phosphoproteome")) {
-      sites <- data_proteins |>
-        dplyr::filter(Gene_name == input$feature, omic_layer == "phosphoproteome") |>
-        dplyr::pull(PTM_collapse_key) |>
-        unique() |>
-        sort()
+      sites <- sort(unique(
+        data_proteins[.(input$feature, "phosphoproteome"), nomatch = NULL]$PTM_collapse_key
+      ))
       # honour a site requested via a row click, else default to the first
       sel <- if (!is.null(pending_site()) && pending_site() %in% sites) pending_site()
              else if (length(sites)) sites[1] else NULL
@@ -343,25 +345,28 @@ server <- function(input, output, session) {
     }
   })
 
+  # Filter the 11M-row data_proteins ONCE per gene + layer change (keyed
+  # data.table lookup, ~0 ms) and share it across the three plots + their
+  # validate guards. Switching comparison tabs reuses this cached subset instead
+  # of re-filtering; the phosphosite is narrowed downstream (in the functions).
+  protein_subset <- reactive({
+    req(input$feature, input$omics_layer)
+    as.data.frame(data_proteins[.(input$feature, input$omics_layer), nomatch = NULL])
+  })
+
   # Main output: the violin from violin_main_effect(), made interactive with ggplotly().
   output$violin_main <- plotly::renderPlotly({
     req(input$feature, input$omics_layer)
-    
-    # Guard the combinations violin_T2D() cannot handle, with a friendly message.
-    validate(need(
-      nrow(dplyr::filter(data_proteins,
-                         Gene_name == input$feature,
-                         omic_layer == input$omics_layer)) > 0,
-      "No data for this gene in the selected omics layer."
-    ))
-    
+    d <- protein_subset()
+    validate(need(nrow(d) > 0, "No data for this gene in the selected omics layer."))
+
     site <- NULL
     if (identical(input$omics_layer, "phosphoproteome")) {
       validate(need(isTRUE(nzchar(input$phosphosite)), "Select a phosphosite."))
       site <- input$phosphosite
     }
-    
-    p <- violin_main_effect(data_proteins, limma_proteins_T2D,
+
+    p <- violin_main_effect(d, limma_proteins_T2D,
                     feature = input$feature, omics_layer = input$omics_layer,
                     phosphosite = site)
     plotly::ggplotly(p, tooltip = "text")
@@ -371,14 +376,8 @@ server <- function(input, output, session) {
   # Main output: the violin from violin_T2D(), made interactive with ggplotly().
   output$violin_T2D <- plotly::renderPlotly({
     req(input$feature, input$omics_layer)
-
-    # Guard the combinations violin_T2D() cannot handle, with a friendly message.
-    validate(need(
-      nrow(dplyr::filter(data_proteins,
-                         Gene_name == input$feature,
-                         omic_layer == input$omics_layer)) > 0,
-      "No data for this gene in the selected omics layer."
-    ))
+    d <- protein_subset()
+    validate(need(nrow(d) > 0, "No data for this gene in the selected omics layer."))
 
     site <- NULL
     if (identical(input$omics_layer, "phosphoproteome")) {
@@ -386,7 +385,7 @@ server <- function(input, output, session) {
       site <- input$phosphosite
     }
 
-    p <- violin_T2D(data_proteins, limma_proteins_T2D,
+    p <- violin_T2D(d, limma_proteins_T2D,
                     feature = input$feature, omics_layer = input$omics_layer,
                     phosphosite = site)
     plotly::ggplotly(p, tooltip = "text")
@@ -395,22 +394,16 @@ server <- function(input, output, session) {
   # Main output: the violin from violin_sex(), made interactive with ggplotly().
   output$violin_sex <- plotly::renderPlotly({
     req(input$feature, input$omics_layer)
-    
-    # Guard the combinations violin_T2D() cannot handle, with a friendly message.
-    validate(need(
-      nrow(dplyr::filter(data_proteins,
-                         Gene_name == input$feature,
-                         omic_layer == input$omics_layer)) > 0,
-      "No data for this gene in the selected omics layer."
-    ))
-    
+    d <- protein_subset()
+    validate(need(nrow(d) > 0, "No data for this gene in the selected omics layer."))
+
     site <- NULL
     if (identical(input$omics_layer, "phosphoproteome")) {
       validate(need(isTRUE(nzchar(input$phosphosite)), "Select a phosphosite."))
       site <- input$phosphosite
     }
-    
-    p <- violin_sex(data_proteins, limma_proteins_sex,
+
+    p <- violin_sex(d, limma_proteins_sex,
                     feature = input$feature, omics_layer = input$omics_layer,
                     phosphosite = site)
     plotly::ggplotly(p, tooltip = "text")
