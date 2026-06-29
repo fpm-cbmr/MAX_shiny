@@ -141,7 +141,7 @@ brackets <- dplyr::bind_rows(
   ),
   data.frame(
     xmin = 1, xmax = 3,
-    y.position = y_max + 0.8,
+    y.position = y_max + 1.2,
     label = c(p_val_rec_NGT, p_val_rec_T2D),
     Group = c("NGT", "T2D")
   )
@@ -252,7 +252,7 @@ output <- ggplot2::ggplot(selected_data,
   ggplot2::ylab(y_label) +
   ggplot2::expand_limits(y = c(min(selected_data$Value, na.rm = TRUE) - 1,
                                max(selected_data$Value, na.rm = TRUE) +
-                                 if (nrow(brackets) > 0) 1.3 else 0.5)) +
+                                 if (nrow(brackets) > 0) 1.8 else 0.5)) +
   ggplot2::ggtitle(plot_title) +
   ggplot2::facet_wrap( ~ Group,
               strip.position = "bottom",
@@ -388,7 +388,7 @@ violin_main_effect <- function(data, limma_output, feature, omics_layer, phospho
     ),
     data.frame(
       xmin = 1, xmax = 3,
-      y.position = y_max + 0.8,
+      y.position = y_max + 1.2,
       label = c(p_val_rec)
     )
   ) |> dplyr::filter(!is.na(label), label <= 0.05)
@@ -494,7 +494,7 @@ violin_main_effect <- function(data, limma_output, feature, omics_layer, phospho
     ggplot2::ylab(y_label) +
     ggplot2::expand_limits(y = c(min(selected_data$Value, na.rm = TRUE) - 1,
                                  max(selected_data$Value, na.rm = TRUE) +
-                                   if (nrow(brackets) > 0) 1.3 else 0.5)) +
+                                   if (nrow(brackets) > 0) 1.8 else 0.5)) +
     ggplot2::ggtitle(plot_title) +
     ggplot2::theme_light() +
     ggplot2::theme(
@@ -628,7 +628,7 @@ violin_sex <- function(data, limma_output, feature, omics_layer, phosphosite = N
     ),
     data.frame(
       xmin = 1, xmax = 3,
-      y.position = y_max + 0.8,
+      y.position = y_max + 1.2,
       label = c(p_val_rec_W, p_val_rec_M),
       Sex = c("W", "M")
     )
@@ -739,7 +739,7 @@ violin_sex <- function(data, limma_output, feature, omics_layer, phosphosite = N
     ggplot2::ylab(y_label) +
     ggplot2::expand_limits(y = c(min(selected_data$Value, na.rm = TRUE) - 1,
                                  max(selected_data$Value, na.rm = TRUE) +
-                                   if (nrow(brackets) > 0) 1.3 else 0.5)) +
+                                   if (nrow(brackets) > 0) 1.8 else 0.5)) +
     ggplot2::ggtitle(plot_title) +
     ggplot2::facet_wrap( ~ Sex,
                          strip.position = "bottom",
@@ -781,7 +781,7 @@ violin_sex <- function(data, limma_output, feature, omics_layer, phosphosite = N
 #' transcriptome, proteome and phosphoproteome (one row per phosphosite). In the
 #' app a row can be clicked to switch the plot to that layer / site.
 #'
-#' @param comparison One of "Main effect", "Ins.Sensitivity" or "Sex" (the
+#' @param comparison One of "Main effect", "Type 2 Diabetes" or "Sex" (the
 #'   active plot tab). Chooses the limma table and the column scope: the overall
 #'   columns, the NGT/T2D pair, or the Women/Men pair respectively.
 #' @param feature gene / protein name (matched against `Gene_name`)
@@ -796,7 +796,7 @@ limma_results_table <- function(comparison, feature, limma_T2D, limma_sex) {
   spec <- switch(
     comparison,
     "Main effect"     = list(tbl = limma_T2D, scopes = c(Overall = "")),
-    "Ins.Sensitivity" = list(tbl = limma_T2D, scopes = c(NGT = "_NGT", T2D = "_T2D")),
+    "Type 2 Diabetes" = list(tbl = limma_T2D, scopes = c(NGT = "_NGT", T2D = "_T2D")),
     "Sex"             = list(tbl = limma_sex, scopes = c(Women = "_W", Men = "_M")),
     NULL
   )
@@ -896,7 +896,7 @@ violin_metabolite <- function(data, limma_output, feature, comparison, base_size
     b <- dplyr::bind_rows(
       data.frame(xmin = 1, xmax = 2, y.position = y_max + 0.5,
                  label = pull_p(paste0("P.Value_post", suf))),
-      data.frame(xmin = 1, xmax = 3, y.position = y_max + 0.8,
+      data.frame(xmin = 1, xmax = 3, y.position = y_max + 1.2,
                  label = pull_p(paste0("P.Value_rec", suf)))
     )
     if (faceted) b[[cfg$facet]] <- cfg$levels[s]
@@ -984,7 +984,7 @@ violin_metabolite <- function(data, limma_output, feature, comparison, base_size
     ggplot2::ylab("Log2 relative abundance") +   # TODO: confirm the metabolite unit
     ggplot2::expand_limits(y = c(min(selected_data$Value, na.rm = TRUE) - 1,
                                  max(selected_data$Value, na.rm = TRUE) +
-                                   if (nrow(brackets) > 0) 1.3 else 0.5)) +
+                                   if (nrow(brackets) > 0) 1.8 else 0.5)) +
     ggplot2::ggtitle(paste(feature, "levels")) +
     ggplot2::theme_light() +
     ggplot2::theme(

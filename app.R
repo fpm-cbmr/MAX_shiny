@@ -93,7 +93,7 @@ app_theme <- bs_theme(
       padding: 10px;
     }
 
-    /* Card tabs (navset_card_underline): Main effect / Ins.Sensitivity / Sex.
+    /* Card tabs (navset_card_underline): Main effect / Type 2 Diabetes / Sex.
        These render as a classic tabset (ul.nav.nav-underline > li > a) with no
        .nav-link class, so the anchors are targeted directly. Force white on the
        blue card header; active / hovered tab is full-opacity + bold. */
@@ -110,6 +110,9 @@ app_theme <- bs_theme(
       opacity: 1;
       font-weight: 700;
     }
+
+    /* Methods tab: accent the cards with a coloured top edge. */
+    .methods-card { border-top: 4px solid var(--bs-primary); }
   ", color_palette[["panel"]], color_palette[["border"]], color_palette[["primary"]]))
 
 # Shared style string for the plot/table panels
@@ -138,41 +141,34 @@ ui <- page_navbar(
         Daniel Hammarström, Dominik Lutter, Julia Otten, Tommy Olsson, Simon Rasmussen, Kenneth Caidahl,
         Harriet Wallberg-Henriksson, Anna Krook, Atul S Deshmukh#, and Juleen R Zierath#"),
         p("*Joint first authors #Co-corresponding authors"),
-        p("<Journal / DOI>"),                                 # TODO
-        p(strong("Summary")),
-        p("<One-paragraph summary of the study and what this app lets users explore.>")  # TODO
+        p("<Journal / DOI>")
       ))),
 
-      # Graphical abstract (drop an image in www/ and point to it here)
-      fluidRow(column(12, wellPanel(
-        tags$div(
-          style = "text-align: center;",
-          # TODO: add www/graphical_abstract.png then uncomment:
-          # tags$img(src = "graphical_abstract.png",
-          #          style = "max-width: 100%; height: auto; max-height: 600px;"),
-          tags$em("Add a graphical abstract image to www/ and reference it here.")
-        )
-      ))),
-
-      # How to use
       fluidRow(column(12, wellPanel(
         strong("Introduction to the data:"),
-        p("This app visualises the MAX multi-omics exercise study in people with normal
-           glucose tolerance (NGT) and type 2 diabetes (T2D)."),
-        p("The 'Expression' tab shows the abundance of a chosen gene / protein across the
-           exercise time-course (Base, Post, Rec) in each group, for the transcriptome,
-           proteome or phosphoproteome. Significant timepoint comparisons (p ≤ 0.05)
-           are annotated with brackets."),
-        p("The 'Differential abundance' tab (coming soon) will show volcano plots from the
-           limma analysis."),
-        p("Disclaimer: <add any preprint / preliminary-results disclaimer here>.")  # TODO
+        p("This app visualises the multi-omic response to endurance exercise in skeletal muscle 
+          of people with type 2 diabetes (T2D) compared to people without type 2 diabetes (non-T2D)."),
+        
+        p("The 'Genes, Proteins & Phosphosites' tab shows the abundance of a chosen feature across 
+          the exercise time-course (Base, Post, Rec) at the level of mRNA, protein, or site-specific 
+          phosphorylation. The 'Metabolites' tab shows the same but for metabolite features. One can 
+          toggle between main effect of exercise, or the effect of exercise by disease or sex within 
+          each feature. Significant timepoint comparisons (adj.P.Val < 0.05) are annotated with brackets 
+          and the specific (unadjusted) p value is displayed."),
+        
+        p("The 'Differential abundance' tab (coming soon) will show volcano plots from the limma analysis."),
+        
       ))),
-
+      
       # Contact
       fluidRow(column(12, wellPanel(
         p("Questions or trouble using the tool? Contact us:"),
         p(tags$a(href = "mailto:roger.moreno.justicia@sund.ku.dk",
-                 "roger.moreno.justicia@sund.ku.dk"))         # TODO: confirm contact(s)
+                 "roger.moreno.justicia@sund.ku.dk")),
+        p(tags$a(href = "mailto:ben.stocks@sund.ku.dk",
+                 "ben.stocks@sund.ku.dk")),
+        p(tags$a(href = "mailto:stephen.ashcroft@sund.ku.dk",
+                 "stephen.ashcroft@sund.ku.dk"))         # TODO: confirm contact(s)# TODO: confirm contact(s)# TODO: confirm contact(s)
       ))),
 
       # Institutional / funder logos
@@ -183,6 +179,70 @@ ui <- page_navbar(
     )
   ),
 
+
+# Methods: ----------------------------------------------------------------
+
+nav_panel(
+    "Methods",
+    fluidPage(
+      fluidRow(
+
+        # Left: all the text
+        column(
+          width = 7,
+
+          # Study design & multi-omic measurements
+          card(
+            class = "methods-card shadow-sm mt-3 mb-4",
+            card_body(
+              p(class = "lead", "To explore how type 2 diabetes impacts the molecular regulation of skeletal muscle metabolism in response to exercise, we performed multi-omic analyses in 92 participants subjected to an acute bout of endurance exercise (30 min at 85% of maximum heart rate) (Fig. 1)"),
+              p("Skeletal muscle biopsies were collected at baseline (Base), immediately post-exercise (Post), and during recovery (Rec)."),
+              p("Using untargeted transcriptomics, proteomics, phosphoproteomics and metabolomics, we quantified 20,923 transcripts, 4,366 proteins, 30,788 phosphosites, and 895 metabolites in skeletal muscle (Fig. 1).")
+            )
+          ),
+
+          # Statistical analysis
+          card(
+            class = "methods-card shadow-sm mb-4",
+            card_body(
+              p("To identify differentially regulated transcripts, proteins, phosphosites and metabolites in human skeletal muscle, we used the limma package (v3.61.6) by applying the lmFit function with eBayes smoothening."),
+              p("To investigate the main effect of exercise and the influence of type 2 diabetes, a subgroup factor of disease and time point (NGT_baseline, NGT_post, NGT_recovery, T2D_baseline, T2D_post, and T2D_recovery) and sex were added as covariates (~0+SubGroup+Sex), with blocking for subjects."),
+              p("To compare the exercise response between men and women, a separate men/women analysis was performed with a subgroup factor combining sex and time point (M_baseline, M_post, M_recovery, F_baseline, F_post, and F_recovery) and disease (~0+SubGroup+Disease) added as covariates to the linear model, also with blocking for subjects."),
+              p("In each case a Benjamini-Hochberg (BH) correction was applied. Adjusted p values (adj.P.val) < 0.05 were considered significant.")
+            )
+          ),
+
+          # Manuscript reference
+          p(class = "text-muted mb-4",
+            "A more in-depth explanation of the study methods can be found within the published manuscript <Journal/DOI>.")
+        ),
+
+        # Right: Figure 1 + caption
+        column(
+          width = 5,
+          card(
+            class = "methods-card shadow-sm mt-3",
+            card_body(
+              tags$div(
+                style = "text-align: center;",
+                tags$img(
+                  src = "MAX_Overview_Shiny.png",
+                  style = "max-width: 100%; height: auto;",
+                  alt = "Graphical Abstract"
+                )
+              ),
+              tags$figcaption(
+                class = "text-muted text-center mt-3",
+                tags$strong("Fig. 1"), " Graphical representation of the dataset"
+              )
+            )
+          )
+        )
+      )
+    )
+  ),
+  
+  
   # --- Expression (violin_T2D) ---------------------------------------------
   nav_panel(
     "Genes, Proteins & Phosphosites",
@@ -193,7 +253,7 @@ ui <- page_navbar(
           class = "sidebar-section",
           p("Select a gene / protein and an omics layer to view its abundance across the
              exercise time-course."),
-          p("Then, toggle between Main effect, Ins.Sensitivity or Sex to view feature abundance
+          p("Then, toggle between Main effect, Type 2 Diabetes or Sex to view feature abundance
             across different statistical comparisons"),
           selectizeInput("feature", "Gene / protein:", choices = NULL),
           radioButtons(
