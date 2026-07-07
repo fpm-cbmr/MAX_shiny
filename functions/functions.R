@@ -776,28 +776,36 @@ violin_sex <- function(data, limma_output, feature, omics_layer, phosphosite = N
 
 #' Limma results table for the selected feature across omics layers
 #'
-#' Builds a table of limma statistics (logFC, AveExpr, P.Value, adj.P.Val) for
-#' the active comparison, with one row per measurement of the gene across the
-#' transcriptome, proteome and phosphoproteome (one row per phosphosite). In the
-#' app a row can be clicked to switch the plot to that layer / site.
+#' Builds a table of sample sizes and limma statistics for the active comparison,
+#' with one row per measurement of the gene across the transcriptome, proteome
+#' and phosphoproteome (one row per phosphosite). For each scope it reports the
+#' sample size n (non-NA data points) at Base / Post / Rec, then logFC, P.Value
+#' and adj.P.Val for the Post and Rec comparisons.
 #'
-#' @param comparison One of "Main effect", "Type 2 Diabetes" or "Sex" (the
-#'   active plot tab). Chooses the limma table and the column scope: the overall
-#'   columns, the NGT/T2D pair, or the Women/Men pair respectively.
+#' @param comparison One of "Main effect", "Type 2 Diabetes" or "Sex" (the active
+#'   plot tab). Chooses the limma table, the statistic-column scope, and how the
+#'   n columns are grouped (pooled, by Group, or by Sex).
 #' @param feature gene / protein name (matched against `Gene_name`)
 #' @param limma_T2D,limma_sex the T2D and sex limma results tables
+#' @param data_feature The gene's abundance data across all layers (e.g.
+#'   `as.data.frame(data_proteins[.(gene)])`), with columns `omic_layer`,
+#'   `PTM_collapse_key`, `Timepoint`, `Group`, `Sex`, `Value` -- used to count n.
 #'
-#' @returns A data.frame with columns `Layer`, `Feature` (gene name, or the
-#'   phosphosite id for the phosphoproteome) then the comparison's statistic
-#'   columns; or NULL if the feature is absent. Numeric columns are left
-#'   unrounded so the caller can format them (e.g. DT::formatSignif).
+#' @returns A data.frame: `Layer`, `Feature`, then per scope the n (Base/Post/Rec)
+#'   and logFC / P.Value / adj.P.Val (Post/Rec) columns; NULL if the gene is
+#'   absent. Numeric columns are left unrounded for the caller to format.
 #' @export
-limma_results_table <- function(comparison, feature, limma_T2D, limma_sex) {
+limma_results_table <- function(comparison, feature, limma_T2D, limma_sex, data_feature) {
   spec <- switch(
     comparison,
-    "Main effect"     = list(tbl = limma_T2D, scopes = c(Overall = "")),
-    "Type 2 Diabetes" = list(tbl = limma_T2D, scopes = c(NGT = "_NGT", T2D = "_T2D")),
-    "Sex"             = list(tbl = limma_sex, scopes = c(Women = "_W", Men = "_M")),
+    "Main effect"     = list(tbl = limma_T2D, group_col = NULL, scopes = list(
+      list(lab = "", suf = "", gval = NULL))),
+    "Type 2 Diabetes" = list(tbl = limma_T2D, group_col = "Group", scopes = list(
+      list(lab = "NGT", suf = "_NGT", gval = "NGT"),
+      list(lab = "T2D", suf = "_T2D", gval = "T2D"))),
+    "Sex"             = list(tbl = limma_sex, group_col = "Sex", scopes = list(
+      list(lab = "Women", suf = "_W", gval = "W"),
+      list(lab = "Men",   suf = "_M", gval = "M"))),
     NULL
   )
   if (is.null(spec)) return(NULL)
@@ -809,25 +817,45 @@ limma_results_table <- function(comparison, feature, limma_T2D, limma_sex) {
     dplyr::arrange(.ord, PTM_collapse_key)
   if (nrow(rows) == 0) return(NULL)
 
+  # Sample-size lookup: non-NA Value counts by layer / site (+ group) x timepoint.
+  grp_col  <- spec$group_col
+  d        <- data_feature[!is.na(data_feature$Value), , drop = FALSE]
+  key_cols <- c("omic_layer", "PTM_collapse_key", grp_col, "Timepoint")   # NULL grp_col drops out
+  agg      <- dplyr::count(d, dplyr::across(dplyr::all_of(key_cols)), name = "N")
+  n_lookup <- stats::setNames(
+    agg$N,
+    do.call(paste, c(lapply(key_cols, function(cc) as.character(agg[[cc]])), sep = "\x1f"))
+  )
+  get_n <- function(layer, site, gval, tp) {
+    parts <- c(layer, as.character(site), if (!is.null(grp_col)) gval, tp)
+    v <- n_lookup[[paste(parts, collapse = "\x1f")]]
+    if (is.null(v)) 0L else as.integer(v)
+  }
+
   out <- data.frame(
     Layer   = rows$omics_layer,
-    # gene name for transcriptome/proteome, phosphosite id for the phosphoproteome
     Feature = ifelse(rows$omics_layer == "phosphoproteome", rows$PTM_collapse_key, rows$Gene_name),
     check.names = FALSE, stringsAsFactors = FALSE
   )
-  stats <- c("logFC", "AveExpr", "P.Value", "adj.P.Val")
-  times <- c(post = "Post", rec = "Rec")
-  # Wide layout: one column per (statistic x timepoint x scope), grouped by scope.
-  for (sc in seq_along(spec$scopes)) {
-    scope_suf <- spec$scopes[[sc]]
-    scope_lab <- names(spec$scopes)[sc]
-    for (tm in seq_along(times)) {
-      t_suf <- names(times)[tm]
-      t_lab <- times[[tm]]
+  stats      <- c("logFC", "P.Value", "adj.P.Val")   # AveExpr replaced by the n columns
+  n_times    <- c(base = "Base", post = "Post", rec = "Rec")
+  stat_times <- c(post = "Post", rec = "Rec")
+
+  for (sc in spec$scopes) {
+    tag <- if (nzchar(sc$lab)) paste0(", ", sc$lab) else ""
+    # n columns (Base / Post / Rec) for this scope, one value per row
+    for (tm in seq_along(n_times)) {
+      tp <- names(n_times)[tm]
+      out[[paste0("n (", n_times[[tm]], tag, ")")]] <-
+        vapply(seq_len(nrow(rows)),
+               function(i) get_n(rows$omics_layer[i], rows$PTM_collapse_key[i], sc$gval, tp),
+               integer(1))
+    }
+    # statistic columns (logFC, P.Value, adj.P.Val) for the Post and Rec comparisons
+    for (tm in seq_along(stat_times)) {
+      t_suf <- names(stat_times)[tm]
       for (st in stats) {
-        disp <- if (nzchar(scope_suf)) paste0(st, " (", t_lab, ", ", scope_lab, ")")
-                else paste0(st, " (", t_lab, ")")
-        out[[disp]] <- rows[[paste0(st, "_", t_suf, scope_suf)]]
+        out[[paste0(st, " (", stat_times[[tm]], tag, ")")]] <- rows[[paste0(st, "_", t_suf, sc$suf)]]
       }
     }
   }
@@ -1025,25 +1053,31 @@ violin_metabolite <- function(data, limma_output, feature, comparison, base_size
 
 #' Limma results table for a metabolite
 #'
-#' The metabolite analogue of [limma_results_table()]: a one-row table of limma
-#' statistics (logFC, AveExpr, P.Value, adj.P.Val) for the selected metabolite in
-#' the active comparison. (Metabolites are a single feature type, so there is one
-#' row and no layer / site columns.)
+#' The metabolite analogue of [limma_results_table()]: a one-row table of sample
+#' sizes (n at Base/Post/Rec) and limma statistics (logFC, P.Value, adj.P.Val)
+#' for the selected metabolite in the active comparison. n columns count non-NA
+#' data points per timepoint (per group for the Type 2 Diabetes / Sex comparisons).
 #'
-#' @param comparison One of "Main effect", "Type 2 Diabetes" or "Sex". Chooses
-#'   the limma table and the column scope (overall, NGT/T2D, or Women/Men).
+#' @param comparison One of "Main effect", "Type 2 Diabetes" or "Sex".
 #' @param feature metabolite name (matched against `CHEMICAL_NAME`)
 #' @param limma_T2D,limma_sex the metabolite T2D and sex limma tables
+#' @param data_feature The metabolite's abundance data (columns `Timepoint`,
+#'   `Group`, `Sex`, `Value`) -- used to count sample sizes.
 #'
-#' @returns A one-row data.frame: `Metabolite` then the comparison's statistic
-#'   columns; or NULL if the metabolite is absent. Numeric columns are unrounded.
+#' @returns A one-row data.frame: `Metabolite`, then per scope the n (Base/Post/
+#'   Rec) and logFC / P.Value / adj.P.Val (Post/Rec) columns; NULL if absent.
 #' @export
-limma_metabolites_table <- function(comparison, feature, limma_T2D, limma_sex) {
+limma_metabolites_table <- function(comparison, feature, limma_T2D, limma_sex, data_feature) {
   spec <- switch(
     comparison,
-    "Main effect"     = list(tbl = limma_T2D, scopes = c(Overall = "")),
-    "Type 2 Diabetes" = list(tbl = limma_T2D, scopes = c(NGT = "_NGT", T2D = "_T2D")),
-    "Sex"             = list(tbl = limma_sex, scopes = c(Women = "_W", Men = "_M")),
+    "Main effect"     = list(tbl = limma_T2D, group_col = NULL, scopes = list(
+      list(lab = "", suf = "", gval = NULL))),
+    "Type 2 Diabetes" = list(tbl = limma_T2D, group_col = "Group", scopes = list(
+      list(lab = "NGT", suf = "_NGT", gval = "NGT"),
+      list(lab = "T2D", suf = "_T2D", gval = "T2D"))),
+    "Sex"             = list(tbl = limma_sex, group_col = "Sex", scopes = list(
+      list(lab = "Women", suf = "_W", gval = "W"),
+      list(lab = "Men",   suf = "_M", gval = "M"))),
     NULL
   )
   if (is.null(spec)) return(NULL)
@@ -1051,19 +1085,28 @@ limma_metabolites_table <- function(comparison, feature, limma_T2D, limma_sex) {
   row <- spec$tbl |> dplyr::filter(CHEMICAL_NAME == feature)
   if (nrow(row) == 0) return(NULL)
 
-  out   <- data.frame(Metabolite = row$CHEMICAL_NAME[1], check.names = FALSE, stringsAsFactors = FALSE)
-  stats <- c("logFC", "AveExpr", "P.Value", "adj.P.Val")
-  times <- c(post = "Post", rec = "Rec")
-  for (sc in seq_along(spec$scopes)) {
-    scope_suf <- spec$scopes[[sc]]
-    scope_lab <- names(spec$scopes)[sc]
-    for (tm in seq_along(times)) {
-      t_suf <- names(times)[tm]
-      t_lab <- times[[tm]]
+  # Sample sizes: non-NA data points per timepoint (per group for T2D / Sex).
+  grp_col <- spec$group_col
+  d       <- data_feature[!is.na(data_feature$Value), , drop = FALSE]
+  count_n <- function(gval, tp) {
+    dd <- if (!is.null(grp_col)) d[d[[grp_col]] == gval, , drop = FALSE] else d
+    sum(dd$Timepoint == tp)
+  }
+
+  out        <- data.frame(Metabolite = row$CHEMICAL_NAME[1], check.names = FALSE, stringsAsFactors = FALSE)
+  stats      <- c("logFC", "P.Value", "adj.P.Val")   # AveExpr replaced by the n columns
+  n_times    <- c(base = "Base", post = "Post", rec = "Rec")
+  stat_times <- c(post = "Post", rec = "Rec")
+
+  for (sc in spec$scopes) {
+    tag <- if (nzchar(sc$lab)) paste0(", ", sc$lab) else ""
+    for (tm in seq_along(n_times)) {
+      out[[paste0("n (", n_times[[tm]], tag, ")")]] <- count_n(sc$gval, names(n_times)[tm])
+    }
+    for (tm in seq_along(stat_times)) {
+      t_suf <- names(stat_times)[tm]
       for (st in stats) {
-        disp <- if (nzchar(scope_suf)) paste0(st, " (", t_lab, ", ", scope_lab, ")")
-                else paste0(st, " (", t_lab, ")")
-        out[[disp]] <- row[[paste0(st, "_", t_suf, scope_suf)]][1]
+        out[[paste0(st, " (", stat_times[[tm]], tag, ")")]] <- row[[paste0(st, "_", t_suf, sc$suf)]][1]
       }
     }
   }

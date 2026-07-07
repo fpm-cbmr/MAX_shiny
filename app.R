@@ -488,8 +488,10 @@ server <- function(input, output, session) {
   # clicking a row to change the layer or site does not rebuild it -> no loop.
   limma_view <- reactive({
     req(input$feature)
+    # gene's data across all layers (keyed lookup) -> used to count sample sizes
+    data_feat <- as.data.frame(data_proteins[.(input$feature), nomatch = NULL])
     limma_results_table(active_comparison(), input$feature,
-                        limma_proteins_T2D, limma_proteins_sex)
+                        limma_proteins_T2D, limma_proteins_sex, data_feat)
   })
 
   # server = FALSE (client-side) so the table re-renders cleanly when the active
@@ -498,8 +500,7 @@ server <- function(input, output, session) {
     df <- limma_view()
     validate(need(!is.null(df) && nrow(df) > 0, "No limma results for this feature."))
     pcols <- names(df)[grepl("P.Val", names(df), fixed = TRUE)]                  # P.Value + adj.P.Val
-    rcols <- names(df)[grepl("logFC", names(df), fixed = TRUE) |
-                       grepl("AveExpr", names(df), fixed = TRUE)]
+    rcols <- names(df)[grepl("logFC", names(df), fixed = TRUE)]   # n columns stay integer
     dt <- DT::datatable(
       df, rownames = FALSE, selection = "single",
       # Bounded, viewport-relative height with internal scroll so the table card
@@ -599,16 +600,16 @@ server <- function(input, output, session) {
   # Stats table for the selected metabolite, linked to the active comparison.
   limma_met_view <- reactive({
     req(input$metabolite)
+    data_feat <- data_metabolites |> dplyr::filter(CHEMICAL_NAME == input$metabolite)
     limma_metabolites_table(active_comparison_met(), input$metabolite,
-                            limma_metabolites_TD, limma_metabolites_sex)
+                            limma_metabolites_TD, limma_metabolites_sex, data_feat)
   })
 
   output$limma_met_table <- DT::renderDT({
     df <- limma_met_view()
     validate(need(!is.null(df) && nrow(df) > 0, "No limma results for this metabolite."))
     pcols <- names(df)[grepl("P.Val", names(df), fixed = TRUE)]
-    rcols <- names(df)[grepl("logFC", names(df), fixed = TRUE) |
-                       grepl("AveExpr", names(df), fixed = TRUE)]
+    rcols <- names(df)[grepl("logFC", names(df), fixed = TRUE)]   # n columns stay integer
     dt <- DT::datatable(df, rownames = FALSE, selection = "none",
                         options = list(scrollX = TRUE, dom = "t", paging = FALSE))
     if (length(pcols)) dt <- DT::formatSignif(dt, pcols, 3)
