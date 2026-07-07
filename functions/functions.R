@@ -179,6 +179,7 @@ box_stats <- selected_data |>
     q3   = stats::quantile(Value, 0.75),
     ymin = min(Value[Value >= stats::quantile(Value, 0.25) - 1.5 * stats::IQR(Value)]),
     ymax = max(Value[Value <= stats::quantile(Value, 0.75) + 1.5 * stats::IQR(Value)]),
+    n    = dplyr::n(),   # non-NA data points in this group (matches the table's n)
     .groups = "drop"
   ) |>
   dplyr::mutate(
@@ -187,8 +188,8 @@ box_stats <- selected_data |>
     xmax = xpos + 0.1,
     # Tooltip text (HTML <br> = line break) shown via tooltip = "text" in ggplotly().
     hover = sprintf(
-      "Median: %.2f<br>Q3 (75%%): %.2f<br>Q1 (25%%): %.2f<br>Upper whisker: %.2f<br>Lower whisker: %.2f",
-      med, q3, q1, ymax, ymin
+      "n = %d<br>Median: %.2f<br>Q3 (75%%): %.2f<br>Q1 (25%%): %.2f<br>Upper whisker: %.2f<br>Lower whisker: %.2f",
+      n, med, q3, q1, ymax, ymin
     )
   )
 
@@ -424,6 +425,7 @@ violin_main_effect <- function(data, limma_output, feature, omics_layer, phospho
       q3   = stats::quantile(Value, 0.75),
       ymin = min(Value[Value >= stats::quantile(Value, 0.25) - 1.5 * stats::IQR(Value)]),
       ymax = max(Value[Value <= stats::quantile(Value, 0.75) + 1.5 * stats::IQR(Value)]),
+      n    = dplyr::n(),   # non-NA data points in this group (matches the table's n)
       .groups = "drop"
     ) |>
     dplyr::mutate(
@@ -432,8 +434,8 @@ violin_main_effect <- function(data, limma_output, feature, omics_layer, phospho
       xmax = xpos + 0.1,
       # Tooltip text (HTML <br> = line break) shown via tooltip = "text" in ggplotly().
       hover = sprintf(
-        "Median: %.2f<br>Q3 (75%%): %.2f<br>Q1 (25%%): %.2f<br>Upper whisker: %.2f<br>Lower whisker: %.2f",
-        med, q3, q1, ymax, ymin
+        "n = %d<br>Median: %.2f<br>Q3 (75%%): %.2f<br>Q1 (25%%): %.2f<br>Upper whisker: %.2f<br>Lower whisker: %.2f",
+        n, med, q3, q1, ymax, ymin
       )
     )
   
@@ -666,6 +668,7 @@ violin_sex <- function(data, limma_output, feature, omics_layer, phosphosite = N
       q3   = stats::quantile(Value, 0.75),
       ymin = min(Value[Value >= stats::quantile(Value, 0.25) - 1.5 * stats::IQR(Value)]),
       ymax = max(Value[Value <= stats::quantile(Value, 0.75) + 1.5 * stats::IQR(Value)]),
+      n    = dplyr::n(),   # non-NA data points in this group (matches the table's n)
       .groups = "drop"
     ) |>
     dplyr::mutate(
@@ -674,8 +677,8 @@ violin_sex <- function(data, limma_output, feature, omics_layer, phosphosite = N
       xmax = xpos + 0.1,
       # Tooltip text (HTML <br> = line break) shown via tooltip = "text" in ggplotly().
       hover = sprintf(
-        "Median: %.2f<br>Q3 (75%%): %.2f<br>Q1 (25%%): %.2f<br>Upper whisker: %.2f<br>Lower whisker: %.2f",
-        med, q3, q1, ymax, ymin
+        "n = %d<br>Median: %.2f<br>Q3 (75%%): %.2f<br>Q1 (25%%): %.2f<br>Upper whisker: %.2f<br>Lower whisker: %.2f",
+        n, med, q3, q1, ymax, ymin
       )
     )
   
@@ -960,6 +963,7 @@ violin_metabolite <- function(data, limma_output, feature, comparison, base_size
       q3   = stats::quantile(Value, 0.75),
       ymin = min(Value[Value >= stats::quantile(Value, 0.25) - 1.5 * stats::IQR(Value)]),
       ymax = max(Value[Value <= stats::quantile(Value, 0.75) + 1.5 * stats::IQR(Value)]),
+      n    = dplyr::n(),   # non-NA data points in this group (matches the table's n)
       .groups = "drop"
     ) |>
     dplyr::mutate(
@@ -967,8 +971,8 @@ violin_metabolite <- function(data, limma_output, feature, comparison, base_size
       xmin = xpos - 0.1,
       xmax = xpos + 0.1,
       hover = sprintf(
-        "Median: %.2f<br>Q3 (75%%): %.2f<br>Q1 (25%%): %.2f<br>Upper whisker: %.2f<br>Lower whisker: %.2f",
-        med, q3, q1, ymax, ymin
+        "n = %d<br>Median: %.2f<br>Q3 (75%%): %.2f<br>Q1 (25%%): %.2f<br>Upper whisker: %.2f<br>Lower whisker: %.2f",
+        n, med, q3, q1, ymax, ymin
       )
     )
 
