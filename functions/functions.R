@@ -124,11 +124,19 @@ p_val_rec_NGT  <- pull_p("P.Value_rec_NGT")
 p_val_post_T2D <- pull_p("P.Value_post_T2D")
 p_val_rec_T2D  <- pull_p("P.Value_rec_T2D")
 
-# Create the brackets, keeping ONLY significant comparisons (p <= 0.05). Each
-# row carries its facet (Group) and the numeric x positions of the two
-# timepoints it spans (base = 1, post = 2, rec = 3 on the discrete x axis).
-# Non-significant or missing (NA) comparisons are removed here, so they never
-# reach the plot.
+# Adjusted (multiple-testing-corrected) p-values decide whether a bracket is
+# drawn; the raw p-value above is what gets displayed on it.
+padj_post_NGT <- pull_p("adj.P.Val_post_NGT")
+padj_rec_NGT  <- pull_p("adj.P.Val_rec_NGT")
+padj_post_T2D <- pull_p("adj.P.Val_post_T2D")
+padj_rec_T2D  <- pull_p("adj.P.Val_rec_T2D")
+
+# Create the brackets, keeping ONLY comparisons that are significant after
+# multiple-testing correction (adjusted p <= 0.05); the displayed label stays the
+# raw p-value. Each row carries its facet (Group) and the numeric x positions of
+# the two timepoints it spans (base = 1, post = 2, rec = 3 on the discrete x
+# axis). Non-significant or missing (NA) comparisons are removed here, so they
+# never reach the plot.
 
 y_max <- max(selected_data$Value, na.rm = TRUE)
 
@@ -137,15 +145,17 @@ brackets <- dplyr::bind_rows(
     xmin = 1, xmax = 2,
     y.position = y_max + 0.5,
     label = c(p_val_post_NGT, p_val_post_T2D),
+    padj  = c(padj_post_NGT, padj_post_T2D),
     Group = c("NGT", "T2D")
   ),
   data.frame(
     xmin = 1, xmax = 3,
     y.position = y_max + 1.2,
     label = c(p_val_rec_NGT, p_val_rec_T2D),
+    padj  = c(padj_rec_NGT, padj_rec_T2D),
     Group = c("NGT", "T2D")
   )
-) |> dplyr::filter(!is.na(label), label <= 0.05)
+) |> dplyr::filter(!is.na(label), !is.na(padj), padj <= 0.05)
 
 # Draw each significant bracket as base-ggplot geoms instead of
 # ggpubr::geom_bracket: a top bar plus two short downward tips (geom_segment)
@@ -372,27 +382,35 @@ violin_main_effect <- function(data, limma_output, feature, omics_layer, phospho
   
   p_val_post <- pull_p("P.Value_post")
   p_val_rec  <- pull_p("P.Value_rec")
-  
-  # Create the brackets, keeping ONLY significant comparisons (p <= 0.05). Each
-  # row carries its facet (Group) and the numeric x positions of the two
+
+  # Adjusted (multiple-testing-corrected) p-values decide whether a bracket is
+  # drawn; the raw p-value above is what gets displayed on it.
+  padj_post <- pull_p("adj.P.Val_post")
+  padj_rec  <- pull_p("adj.P.Val_rec")
+
+  # Create the brackets, keeping ONLY comparisons that are significant after
+  # multiple-testing correction (adjusted p <= 0.05); the displayed label stays
+  # the raw p-value. Each row carries the numeric x positions of the two
   # timepoints it spans (base = 1, post = 2, rec = 3 on the discrete x axis).
   # Non-significant or missing (NA) comparisons are removed here, so they never
   # reach the plot.
-  
+
   y_max <- max(selected_data$Value, na.rm = TRUE)
-  
+
   brackets <- dplyr::bind_rows(
     data.frame(
       xmin = 1, xmax = 2,
       y.position = y_max + 0.5,
-      label = c(p_val_post)
+      label = c(p_val_post),
+      padj  = c(padj_post)
     ),
     data.frame(
       xmin = 1, xmax = 3,
       y.position = y_max + 1.2,
-      label = c(p_val_rec)
+      label = c(p_val_rec),
+      padj  = c(padj_rec)
     )
-  ) |> dplyr::filter(!is.na(label), label <= 0.05)
+  ) |> dplyr::filter(!is.na(label), !is.na(padj), padj <= 0.05)
   
   # Draw each significant bracket as base-ggplot geoms instead of
   # ggpubr::geom_bracket: a top bar plus two short downward tips (geom_segment)
@@ -612,29 +630,39 @@ violin_sex <- function(data, limma_output, feature, omics_layer, phosphosite = N
   p_val_rec_W  <- pull_p("P.Value_rec_W")
   p_val_post_M <- pull_p("P.Value_post_M")
   p_val_rec_M  <- pull_p("P.Value_rec_M")
-  
-  # Create the brackets, keeping ONLY significant comparisons (p <= 0.05). Each
-  # row carries its facet (Sex) and the numeric x positions of the two
-  # timepoints it spans (base = 1, post = 2, rec = 3 on the discrete x axis).
-  # Non-significant or missing (NA) comparisons are removed here, so they never
-  # reach the plot.
-  
+
+  # Adjusted (multiple-testing-corrected) p-values decide whether a bracket is
+  # drawn; the raw p-value above is what gets displayed on it.
+  padj_post_W <- pull_p("adj.P.Val_post_W")
+  padj_rec_W  <- pull_p("adj.P.Val_rec_W")
+  padj_post_M <- pull_p("adj.P.Val_post_M")
+  padj_rec_M  <- pull_p("adj.P.Val_rec_M")
+
+  # Create the brackets, keeping ONLY comparisons that are significant after
+  # multiple-testing correction (adjusted p <= 0.05); the displayed label stays
+  # the raw p-value. Each row carries its facet (Sex) and the numeric x positions
+  # of the two timepoints it spans (base = 1, post = 2, rec = 3 on the discrete x
+  # axis). Non-significant or missing (NA) comparisons are removed here, so they
+  # never reach the plot.
+
   y_max <- max(selected_data$Value, na.rm = TRUE)
-  
+
   brackets <- dplyr::bind_rows(
     data.frame(
       xmin = 1, xmax = 2,
       y.position = y_max + 0.5,
       label = c(p_val_post_W, p_val_post_M),
+      padj  = c(padj_post_W, padj_post_M),
       Sex = c("W", "M")
     ),
     data.frame(
       xmin = 1, xmax = 3,
       y.position = y_max + 1.2,
       label = c(p_val_rec_W, p_val_rec_M),
+      padj  = c(padj_rec_W, padj_rec_M),
       Sex = c("W", "M")
     )
-  ) |> dplyr::filter(!is.na(label), label <= 0.05)
+  ) |> dplyr::filter(!is.na(label), !is.na(padj), padj <= 0.05)
   
   # Draw each significant bracket as base-ggplot geoms instead of
   # ggpubr::geom_bracket: a top bar plus two short downward tips (geom_segment)
@@ -921,19 +949,22 @@ violin_metabolite <- function(data, limma_output, feature, comparison, base_size
   y_max <- max(selected_data$Value, na.rm = TRUE)
 
   # Significance brackets per scope (overall, or one per facet level): base->post
-  # (x 1->2) and base->rec (x 1->3). Keep only p <= 0.05.
+  # (x 1->2) and base->rec (x 1->3). The adjusted p-value decides whether a
+  # bracket is shown; the displayed label stays the raw p-value.
   brackets <- do.call(dplyr::bind_rows, lapply(seq_along(cfg$suffixes), function(s) {
     suf <- cfg$suffixes[[s]]
     b <- dplyr::bind_rows(
       data.frame(xmin = 1, xmax = 2, y.position = y_max + 0.5,
-                 label = pull_p(paste0("P.Value_post", suf))),
+                 label = pull_p(paste0("P.Value_post", suf)),
+                 padj  = pull_p(paste0("adj.P.Val_post", suf))),
       data.frame(xmin = 1, xmax = 3, y.position = y_max + 1.2,
-                 label = pull_p(paste0("P.Value_rec", suf)))
+                 label = pull_p(paste0("P.Value_rec", suf)),
+                 padj  = pull_p(paste0("adj.P.Val_rec", suf)))
     )
     if (faceted) b[[cfg$facet]] <- cfg$levels[s]
     b
   }))
-  brackets <- brackets |> dplyr::filter(!is.na(label), label <= 0.05)
+  brackets <- brackets |> dplyr::filter(!is.na(label), !is.na(padj), padj <= 0.05)
 
   # Bracket geometry (bar + two downward tips) + label, base geoms (ggplotly-safe).
   bracket_tip  <- 0.12

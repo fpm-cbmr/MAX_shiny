@@ -172,9 +172,23 @@ ui <- page_navbar(
       ))),
 
       # Institutional / funder logos
-      fluidRow(column(12,
+      fluidRow(
+        column(12,
         # TODO: add logo PNGs to www/ and render via plotOutput() (see server).
-        tags$em("Add institutional / funder logos to www/ and wire them up in the server.")
+        
+        tags$div(
+          style = "text-align: left;",
+          tags$img(
+            src = "KI_digital_logotyp_positiv_RGB.jpg",
+            style = "max-width: 20%; height: auto;",
+            alt = "KI Logo"
+          ),
+          tags$img(
+            src = "CBMR_KU_LOGO_red_transparent_1000x600px.png",
+            style = "max-width: 20%; height: auto;",
+            alt = "CBMR Logo"
+          )
+        )
       ))
     )
   ),
@@ -195,7 +209,7 @@ nav_panel(
           card(
             class = "methods-card shadow-sm mt-3 mb-4",
             card_body(
-              p(class = "lead", "To explore how type 2 diabetes impacts the molecular regulation of skeletal muscle metabolism in response to exercise, we performed multi-omic analyses in 92 participants subjected to an acute bout of endurance exercise (30 min at 85% of maximum heart rate) (Fig. 1)"),
+              p("To explore how type 2 diabetes impacts the molecular regulation of skeletal muscle metabolism in response to exercise, we performed multi-omic analyses in 92 participants subjected to an acute bout of endurance exercise (30 min at 85% of maximum heart rate) (Fig. 1)"),
               p("Skeletal muscle biopsies were collected at baseline (Base), immediately post-exercise (Post), and during recovery (Rec)."),
               p("Using untargeted transcriptomics, proteomics, phosphoproteomics and metabolomics, we quantified 20,923 transcripts, 4,366 proteins, 30,788 phosphosites, and 895 metabolites in skeletal muscle (Fig. 1).")
             )
@@ -265,7 +279,7 @@ nav_panel(
             condition = "input.omics_layer == 'phosphoproteome'",
             selectizeInput("phosphosite", "Phosphosite:", choices = NULL)
           ),
-          p("S, T and Y stand for serine, threonine and tyrosine, respectively"),
+          p("Within the phosphoproteome, S, T and Y stand for serine, threonine and tyrosine, respectively"),
           p("M indicates multiplicity of sites: number of concurrent phosphosites in a given peptide")
         ),
         div(
