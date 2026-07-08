@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="www/MAX_Overview_Shiny.png" alt="Study overview: multi-omic profiling of skeletal muscle across an exercise time-course" width="760">
+  <img src="www/MAX_Overview_Shiny.png" alt="Study overview: multi-omic profiling of skeletal muscle across an exercise time-course" width="520">
 </p>
 
 ---
